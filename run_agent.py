@@ -22,5 +22,5 @@ agent = TradingAgent(
 
 # Run the agent in a loop
 while True:
-    agent.run(risk_pct=1)  # % risk per trade
-    time.sleep(30)  # Wait for next candle
+    agent.run(risk_pct=0.95)  # % risk per trade
+    time.sleep(10)  # Wait for next candle

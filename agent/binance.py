@@ -6,6 +6,8 @@ from binance.client import Client
 from binance.enums import *
 from strategies.base import StrategyBase
 import os
+from decimal import Decimal
+import time
 
 class TradingAgent:
     """
@@ -92,58 +94,7 @@ class TradingAgent:
         except Exception as e:
             self.logger.error(f"Error fetching market data: {e}")
             raise
-            
-    def execute_trade(self, signal: int, price: float, quantity: float) -> Optional[Dict]:
-        """
-        Execute a trade based on the signal.
-        
-        Args:
-            signal: Trading signal (-1 for sell, 1 for buy, 0 for hold)
-            price: Current price
-            quantity: Quantity to trade
-            
-        Returns:
-            Dictionary with trade execution details or None if test mode
-        """
-        if self.test_mode:
-            self.logger.info(f"TEST MODE: Would execute {'BUY' if signal == 1 else 'SELL'} order for {quantity} {self.symbol} at {price}")
-            return None
-            
-        try:
-            if signal == 1:  # Buy signal (using quote currency - BTC)
-                os.system('spd-say "BUY"')
 
-                order = self.client.create_order(
-                    symbol=self.symbol,
-                    side=SIDE_BUY,
-                    type=ORDER_TYPE_MARKET,
-                    quantity=quantity
-                )
-                self.position = {
-                    'side': 'long', 
-                    'entry_price': price, 
-                    'quantity': quantity,
-                    'asset': self.base_currency  # We now hold VET
-                }
-                self.logger.info(f"Executed BUY order: {order}")
-                return order
-                
-            elif signal == -1:  # Sell signal (using base currency - VET)
-                os.system('spd-say "SELL"')
-                order = self.client.create_order(
-                    symbol=self.symbol,
-                    side=SIDE_SELL,
-                    type=ORDER_TYPE_MARKET,
-                    quantity=quantity
-                )
-                self.position = None  # We've sold our VET position
-                self.logger.info(f"Executed SELL order: {order}")
-                return order
-                
-        except Exception as e:
-            self.logger.error(f"Error executing trade: {e}")
-            raise
-            
     def calculate_quantity(self, signal: int, price: float, risk_pct: float = 0.01) -> float:
         """
         Calculate trade quantity based on risk percentage and account balance.
@@ -184,19 +135,145 @@ class TradingAgent:
             quantity = round(quantity - (quantity % step_size), 8)
             
             # Also ensure we're not trying to trade more than we have
-            if not self.test_mode:
-                if signal == 1:  # Buying - check BTC balance
-                    max_possible = balance / price
-                else:  # Selling - check VET balance
-                    max_possible = balance
+            # if signal == 1:
+            #     quantity *= price
+            #     quantity = round(quantity - (quantity % 0.0000001), 8)
+            # if not self.test_mode:
+            #     if signal == 1:  # Buying - check BTC balance
+            #         max_possible = balance / price
+            #     else:  # Selling - check VET balance
+            #         max_possible = balance
                     
-                quantity = min(quantity, max_possible)
+            #     quantity = min(quantity, max_possible)
             
             return quantity
             
         except Exception as e:
             self.logger.error(f"Error calculating quantity: {e}")
-            raise
+            raise        
+            
+    def execute_trade(self, signal: int, price: float, quantity: float) -> Optional[Dict]:
+        """
+        Execute a trade based on the signal.
+        
+        Args:
+            signal: Trading signal (-1 for sell, 1 for buy, 0 for hold)
+            price: Current price
+            quantity: Quantity to trade
+            
+        Returns:
+            Dictionary with trade execution details or None if test mode
+        """
+        if self.test_mode:
+            self.logger.info(f"TEST MODE: Would execute {'BUY' if signal == 1 else 'SELL'} order for {quantity} {self.symbol} at {price}")
+            return None
+
+        if signal == 1:  # Buy signal (using quote currency - BTC)
+            os.system('spd-say "BUY"')
+            
+            # Calculate limit price with small buffer above current price
+            limit_price = round(price * 1.0, 8)  # 0.1% above current price
+            current_price = limit_price
+            
+            try:
+                order = self.client.create_order(
+                    symbol=self.symbol,
+                    side=SIDE_BUY,
+                    type=ORDER_TYPE_LIMIT,
+                    timeInForce=TIME_IN_FORCE_GTC,  # Good Till Cancelled
+                    quantity=quantity,
+                    price="{0:.8f}".format(limit_price)
+                )
+                self.logger.info(f"Placed BUY limit order at {limit_price}: {order}")
+                
+                # Wait for order to fill (with timeout)
+                order_filled = False
+                start_time = time.time()
+                while "{0:.8f}".format(current_price) == "{0:.8f}".format(limit_price) \
+                    and not order_filled and time.time() - start_time < 600:  # 60 second timeout
+                    current_price = float(self.client.get_symbol_ticker(symbol=self.symbol)['price'])
+                    order_status = self.client.get_order(
+                        symbol=self.symbol,
+                        orderId=order['orderId']
+                    )
+                    if order_status['status'] == 'FILLED':
+                        order_filled = True
+                        avg_fill_price = float(order_status['price'])
+                        self.position = {
+                            'side': 'long', 
+                            'entry_price': avg_fill_price,  # Use actual fill price
+                            'quantity': float(order_status['executedQty']),
+                            'asset': self.base_currency
+                        }
+                        self.logger.info(f"Order filled at {avg_fill_price}")
+                        break
+                    time.sleep(2)  # Check every 2 seconds
+                
+                if not order_filled:
+                    # Cancel the order if not filled within timeout
+                    self.client.cancel_order(
+                        symbol=self.symbol,
+                        orderId=order['orderId']
+                    )
+                    self.logger.warning("Buy order not filled within timeout, cancelled")
+                    return None
+                    
+                return order
+                
+            except Exception as e:
+                self.logger.error(f"Error executing buy order: {e}")
+                raise
+        
+        elif signal == -1:  # Sell signal (using base currency - VET)
+            os.system('spd-say "SELL"')
+            
+            # Calculate limit price with small buffer below current price
+            limit_price = round(price * 1.0, 8)  # 0.1% below current price
+            current_price = limit_price
+            
+            try:
+                order = self.client.create_order(
+                    symbol=self.symbol,
+                    side=SIDE_SELL,
+                    type=ORDER_TYPE_LIMIT,
+                    timeInForce=TIME_IN_FORCE_GTC,
+                    quantity=quantity,
+                    price="{0:.8f}".format(limit_price)
+                )
+                self.logger.info(f"Placed SELL limit order at {limit_price}: {order}")
+                
+                # Wait for order to fill (with timeout)
+                order_filled = False
+                start_time = time.time()
+                while "{0:.8f}".format(current_price) == "{0:.8f}".format(limit_price) \
+                    and not order_filled and time.time() - start_time < 600:  # 60 second timeout
+                    current_price = float(self.client.get_symbol_ticker(symbol=self.symbol)['price'])
+                    order_status = self.client.get_order(
+                        symbol=self.symbol,
+                        orderId=order['orderId']
+                    )
+                    if order_status['status'] == 'FILLED':
+                        order_filled = True
+                        avg_fill_price = float(order_status['price'])
+                        self.position = None
+                        self.logger.info(f"Order filled at {avg_fill_price}")
+                        break
+                    time.sleep(2)  # Check every 2 seconds
+                
+                if not order_filled:
+                    # Cancel the order if not filled within timeout
+                    self.client.cancel_order(
+                        symbol=self.symbol,
+                        orderId=order['orderId']
+                    )
+                    self.logger.warning("Sell order not filled within timeout, cancelled")
+                    return None
+                    
+                return order
+                
+            except Exception as e:
+                self.logger.error(f"Error executing sell order: {e}")
+                raise
             
     def run(self, risk_pct: float = 0.01) -> None:
         """
@@ -216,6 +293,7 @@ class TradingAgent:
             signals = self.strategy.generate_signals()
             latest_signal = signals['position'].iloc[-1]
             
+            # latest_signal = 1
             # Skip if no signal (0)
             if latest_signal == 0:
                 self.logger.info("No trading signal")
@@ -232,7 +310,7 @@ class TradingAgent:
             )
             
             # Check if we have enough balance
-            if quantity <= 0:
+            if quantity <= 500:
                 self.logger.warning(f"Insufficient balance for {self.base_currency if latest_signal == -1 else self.quote_currency}")
                 return
                 
