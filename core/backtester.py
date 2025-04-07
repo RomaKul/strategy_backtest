@@ -74,16 +74,6 @@ class Backtester:
         # Equity curve
         fig = portfolio.plot(subplots=['orders', 'trade_pnl', 'cum_returns'])
         
-        # Збереження графіку
-        filename = os.path.join(
-            self.results_dir, 
-            'screenshots', 
-            f'{strategy_name}_{symbol}_equity.html'
-        )
-        
-        # Зберігаємо як інтерактивний HTML
-        pio.write_html(fig, filename)
-        
         # Додатково зберігаємо як статичне зображення (PNG)
         png_filename = os.path.join(
             self.results_dir,
