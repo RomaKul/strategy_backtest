@@ -1,7 +1,7 @@
 .venv
 .pytest_cache
 __pycache__
-results/*
+results*/*
 data/*
 *.ipynb
 

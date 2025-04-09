@@ -94,17 +94,3 @@ class MultiTimeframeMomentum(StrategyBase):
         
         self.results = pf.stats()
         return pf
-    
-    def get_metrics(self) -> Dict[str, float]:
-        """Повертає метрики продуктивності стратегії."""
-        if self.results is None:
-            raise ValueError("Спочатку виконайте бектест (run_backtest)")
-        
-        return {
-            'total_return': self.results['Total Return [%]'],
-            'sharpe_ratio': self.results['Sharpe Ratio'],
-            'max_drawdown': self.results['Max Drawdown [%]'],
-            'win_rate': self.results['Win Rate [%]'],
-            'expectancy': self.results['Expectancy'],
-            'exposure_time': self.results['Avg Winning Trade Duration'] + self.results['Avg Losing Trade Duration']
-        }

@@ -41,7 +41,6 @@ class StrategyBase(ABC):
         """
         pass
     
-    @abstractmethod
     def get_metrics(self) -> Dict[str, float]:
         """
         Обчислює метрики продуктивності стратегії.
@@ -49,7 +48,18 @@ class StrategyBase(ABC):
         Returns:
             Словник з метриками
         """
-        pass
+        if self.results is None:
+            raise ValueError("Спочатку виконайте бектест (run_backtest)")
+        
+        return {
+            'total_return': self.results['Total Return [%]'],
+            'sharpe_ratio': self.results['Sharpe Ratio'],
+            'max_drawdown': self.results['Max Drawdown [%]'],
+            'win_rate': self.results['Win Rate [%]'],
+            'expectancy': self.results['Expectancy'],
+            'win_duration': self.results['Avg Winning Trade Duration'],
+            'lose_duration': self.results['Avg Losing Trade Duration']
+        }
     
     def plot_results(self):
         """

@@ -1,7 +1,8 @@
 from binance.client import Client
 from strategies.vwap_reversion import VWAPReversion  # or any other strategy
-from agent.binance import TradingAgent
+from agent.binance_test import TradingAgent
 import time
+import sys
 
 # Initialize Binance client
 api_key = '0FhZdWeLefwxmQYVzi8pT1hQaR6lvC0NRn35oWiG5bJV1LutsMJgbHnK5ZJrZbQK'
@@ -17,10 +18,16 @@ agent = TradingAgent(
     strategy=strategy,
     symbol='VETBTC',
     timeframe='1m',
+    risk_pct=0.95,
     test_mode=False  # Set to True for paper trading
 )
 
 # Run the agent in a loop
 while True:
-    agent.run(risk_pct=0.95)  # % risk per trade
-    time.sleep(10)  # Wait for next candle
+    try:
+        agent.run()  # % risk per trade
+        time.sleep(10)  # Wait for next candle
+    except KeyboardInterrupt:
+        print("\nReceived Ctrl+C. Exiting gracefully...")
+        agent.cancel_pending_orders()
+        sys.exit(0)  # Exit with status code 0 (success)

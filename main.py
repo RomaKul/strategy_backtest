@@ -6,6 +6,7 @@ from strategies.atr_breakout import ATRTrailingBreakout
 from strategies.multi_momentum import MultiTimeframeMomentum
 from strategies.vwap_reversion import VWAPReversion
 import logging
+from datetime import datetime
 import pandas as pd
 
 def main():
@@ -18,7 +19,7 @@ def main():
     loader = DataLoader()    
     
     # Завантаження OHLCV даних (або з кешу, або з API)
-    data_file = 'btc_1m_feb25.parquet'
+    data_file = 'btc_1m_apr25.parquet'
     if not os.path.exists(os.path.join('data', data_file)):
 
         # Отримання топ-100 пар
@@ -28,7 +29,7 @@ def main():
         for pair in top_pairs:
             try:
                 logger.info(f"Завантаження даних для {pair}")
-                df = loader.fetch_ohlcv(pair)
+                df = loader.fetch_ohlcv(pair, start_date='2025-03-15', end_date='2025-05-01')
                 data[pair.replace('/', '_')] = df
             except Exception as e:
                 logger.error(f"Помилка при завантаженні {pair}: {str(e)}")
@@ -41,13 +42,13 @@ def main():
         data = loader.load_data(data_file)
     
     # Ініціалізація бектестера
-    backtester = Backtester(data)
+    backtester = Backtester(data, results_dir='results'+datetime.today().strftime('%Y-%m-%d'))
     
     # Параметри стратегій
     strategies = [
         (ATRTrailingBreakout, {'atr_window': 14, 'atr_multiplier': 2.0, 'lookback_period': 20}),
-        (MultiTimeframeMomentum, {'rsi_window': 14, 'bb_window': 20}),
-        (VWAPReversion, {'vwap_window': 50, 'deviation_threshold': 0.02})
+        # (MultiTimeframeMomentum, {'rsi_window': 14, 'bb_window': 20}),
+        # (VWAPReversion, {'vwap_window': 50, 'deviation_threshold': 0.02})
     ]
     
     # Запуск бектесту для кожної стратегії
@@ -65,7 +66,7 @@ def main():
         logger.info(f"Середній Sharpe Ratio: {metrics['sharpe_ratio'].mean():.2f}")
     
     # Save all metrics to CSV
-    metrics_agg.to_csv(os.path.join(backtester.results_dir, 'all_metrics.csv'), index=False)
+    metrics_agg.to_csv(os.path.join(backtester.results_dir, 'all_metrics_atr.csv'), index=False)
 
     # Generate combined heatmap for all strategies
     backtester.plot_metrics_heatmap(metrics_agg)

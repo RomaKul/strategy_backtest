@@ -1,11 +1,12 @@
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 import pandas as pd
 from binance.client import Client
 from binance.enums import *
 from strategies.base import StrategyBase
 import os
 import time
+import math
 
 class TradingAgent:
     """Enhanced trading agent with configurable order placement logic."""
@@ -17,8 +18,9 @@ class TradingAgent:
         symbol: str,
         timeframe: str,
         test_mode: bool = True,
-        aggressive_order_placement: bool = False,
-        order_timeout: int = 300,
+        order_timeout: int = 999999999999,
+        risk_pct: float = 0.01,
+        safety_buffer_pct: float = 0.05,  # 5% buffer from signal price
         logger: Optional[logging.Logger] = None
     ):
         self.client = client
@@ -26,8 +28,9 @@ class TradingAgent:
         self.symbol = symbol
         self.timeframe = timeframe
         self.test_mode = test_mode
-        self.aggressive_order_placement = aggressive_order_placement
         self.order_timeout = order_timeout
+        self.risk_pct = risk_pct
+        self.safety_buffer_pct = safety_buffer_pct
         self.position = None
         self.pending_orders = {}
         self.base_currency = symbol[:-3]
@@ -40,7 +43,6 @@ class TradingAgent:
             self.logger = logger
             
         self.logger.info(f"Initialized TradingAgent for {symbol}")
-        self.logger.info(f"Aggressive order placement: {'ON' if aggressive_order_placement else 'OFF'}")
 
     def fetch_market_data(self, limit: int = 51) -> pd.DataFrame:
         """Fetch OHLCV market data from Binance."""
@@ -70,22 +72,21 @@ class TradingAgent:
     def get_balance(self, asset: str) -> float:
         """Get available balance for an asset."""
         if self.test_mode:
-            return 1000 if asset == self.base_currency else 0.1
+            return 1000 if asset == self.quote_currency else 0.1
         try:
             return float(self.client.get_asset_balance(asset)['free'])
         except Exception as e:
             self.logger.error(f"Error getting {asset} balance: {e}")
             raise
 
-    def calculate_quantity(self, signal: int, price: float, risk_pct: float = 0.01) -> float:
-        """Calculate precise trade quantity."""
+    def calculate_quantity(self, price: float, is_buy: bool) -> float:
+        """Calculate precise trade quantity based on risk percentage."""
         try:
-            if signal == 1:  # Buy
+            if is_buy:
                 balance = self.get_balance(self.quote_currency)
-                risk_amount = balance * risk_pct
-                quantity = risk_amount / price
-            else:  # Sell
-                quantity = self.get_balance(self.base_currency) * risk_pct
+                quantity = (balance * self.risk_pct) / price
+            else:
+                quantity = self.get_balance(self.base_currency) * self.risk_pct
 
             # Get lot size precision
             symbol_info = self.client.get_symbol_info(self.symbol)
@@ -93,7 +94,7 @@ class TradingAgent:
                              if f['filterType'] == 'LOT_SIZE'][0])
             
             # Round down to nearest step size
-            quantity = int(quantity / step_size) * step_size
+            quantity = math.floor(quantity / step_size) * step_size
             
             return round(quantity, 8)
             
@@ -101,54 +102,42 @@ class TradingAgent:
             self.logger.error(f"Quantity calculation error: {e}")
             raise
 
-    def get_order_book_depth(self) -> Dict:
-        """Get current order book depth."""
-        try:
-            return self.client.get_order_book(symbol=self.symbol, limit=5)
-        except Exception as e:
-            self.logger.error(f"Error getting order book: {e}")
-            raise
-
-    def determine_order_price(self, side: str, current_price: float) -> float:
+    def determine_order_price(self, signal_price: float, is_buy: bool) -> float:
         """
-        Determine order price based on configuration.
-        Returns order price
+        Determine order price with safety buffer.
+        For buys: place at or below signal price
+        For sells: place at or above signal price
         """
-        if not self.aggressive_order_placement:
-            return current_price
-            
-        try:
-            book = self.get_order_book_depth()
-            if side == SIDE_BUY:
-                best_bid = float(book['bids'][0][0]) if book['bids'] else current_price
-                return round(best_bid * 1.0001, 8)  # 0.01% above best bid
-            else:
-                best_ask = float(book['asks'][0][0]) if book['asks'] else current_price
-                return round(best_ask * 0.9999, 8)  # 0.01% below best ask
-        except Exception as e:
-            self.logger.warning(f"Couldn't determine aggressive price, using current price: {e}")
-            return current_price
+        price_precision = 8
+        
+        if is_buy:
+            # Place buy order at or below signal price with buffer
+            adjusted_price = signal_price * (1 - self.safety_buffer_pct)
+            return round(adjusted_price, price_precision)
+        else:
+            # Place sell order at or above signal price with buffer
+            adjusted_price = signal_price * (1 + self.safety_buffer_pct)
+            return round(adjusted_price, price_precision)
 
     def place_limit_order(
         self, 
         side: str, 
-        current_price: float, 
+        price: float, 
         quantity: float,
         time_in_force: str = TIME_IN_FORCE_GTC
     ) -> Optional[Dict]:
-        """Place a limit order with configurable placement logic."""
+        
+        """Place a limit order at specified price."""
         try:
-            order_price = self.determine_order_price(side, current_price)
-            order_price = "{0:.8f}".format(order_price)
-            
-            self.logger.info(f"Placing {side} order for {quantity} {self.symbol} @ {order_price}")
+            price = "{0:.8f}".format(price)
+            self.logger.info(f"Placing {side} order for {quantity} {self.symbol} @ {price}")
             
             if self.test_mode:
                 self.logger.info("TEST MODE: Order not actually placed")
                 return {
                     'orderId': 'test_order',
                     'status': 'NEW',
-                    'price': str(order_price),
+                    'price': str(price),
                     'side': side,
                     'origQty': str(quantity)
                 }
@@ -159,13 +148,13 @@ class TradingAgent:
                 type=ORDER_TYPE_LIMIT,
                 timeInForce=time_in_force,
                 quantity=quantity,
-                price=str(order_price)
+                price=str(price)
             )
             
             # Track pending order
             self.pending_orders[order['orderId']] = {
                 'side': side,
-                'price': order_price,
+                'price': price,
                 'quantity': quantity,
                 'timestamp': time.time()
             }
@@ -209,10 +198,19 @@ class TradingAgent:
         
         for order_id in list(self.pending_orders.keys()):
             try:
-                order_info = self.client.get_order(
-                    symbol=self.symbol,
-                    orderId=order_id
-                )
+                if self.test_mode:
+                    # Simulate order fill in test mode
+                    order_info = {
+                        'status': 'FILLED',
+                        'price': self.pending_orders[order_id]['price'],
+                        'executedQty': self.pending_orders[order_id]['quantity'],
+                        'side': self.pending_orders[order_id]['side']
+                    }
+                else:
+                    order_info = self.client.get_order(
+                        symbol=self.symbol,
+                        orderId=order_id
+                    )
                 
                 if order_info['status'] == 'FILLED':
                     any_filled = True
@@ -232,42 +230,46 @@ class TradingAgent:
                         
                     self.logger.info(f"Pending {side} order filled at {fill_price}")
                     del self.pending_orders[order_id]
-                    
+
                 # Check if price has moved against us significantly
                 elif time.time() - self.pending_orders[order_id]['timestamp'] > self.order_timeout:
                     original_price = float(self.pending_orders[order_id]['price'])
                     price_diff_pct = abs(current_price - original_price) / original_price * 100
                     
-                    if price_diff_pct > 1.0:  # 1% price movement against us
+                    if price_diff_pct > 10.0:  # 1% price movement against us
                         self.logger.info(f"Price moved {price_diff_pct:.2f}% against pending order")
                         self.client.cancel_order(
                             symbol=self.symbol,
                             orderId=order_id
                         )
-                        del self.pending_orders[order_id]
+                        del self.pending_orders[order_id]                    
                         
             except Exception as e:
                 self.logger.error(f"Error checking order {order_id}: {e}")
                 # Remove from tracking if we can't check status
-                del self.pending_orders[order_id]
+                # del self.pending_orders[order_id]
                 
         return any_filled
 
-    def execute_trade(self, signal: int, price: float, quantity: float) -> Optional[Dict]:
-        """Execute trade with configurable order placement."""
-        if quantity <= 0:
-            self.logger.warning("Invalid quantity")
-            return None
-            
+    def execute_trade(self, signal: int, signal_price: float) -> Optional[Dict]:
+        """Execute trade based on signal price."""
         try:
-            # First cancel any existing pending orders
-            self.cancel_pending_orders()
             
-            side = SIDE_BUY if signal == 1 else SIDE_SELL
-            os.system(f'spd-say "{side}"')
+            is_buy = signal == 1
+            side = SIDE_BUY if is_buy else SIDE_SELL
             
-            # Place the order with configured placement logic
-            order = self.place_limit_order(side, price, quantity)
+            # Calculate order price with safety buffer
+            order_price = self.determine_order_price(signal_price, is_buy)
+            
+            # Calculate quantity based on risk percentage
+            quantity = self.calculate_quantity(order_price, is_buy)
+            
+            if quantity * signal_price < 0.0001:
+                self.logger.warning("Invalid quantity")
+                return None
+                
+            # Place the order
+            order = self.place_limit_order(side, order_price, quantity)
             
             if self.test_mode:
                 return None
@@ -278,32 +280,31 @@ class TradingAgent:
             self.logger.error(f"Trade execution error: {e}")
             raise
 
-    def run(self, risk_pct: float = 0.01) -> None:
+    def run(self) -> None:
         """Main trading loop with order monitoring."""
         try:
-            # First check status of any pending orders
             self.check_pending_orders()
             
             data = self.fetch_market_data()
             self.strategy.price_data = data
             
-            signals = self.strategy.generate_signals()
-            latest_signal = signals['position'].iloc[-1]
+            # Get signal prices from strategy
+            buy_price, sell_price = self.strategy.get_current_signal_prices()
             
-            if latest_signal == 0:
-                self.logger.debug("No trading signal")
-                return
-                
-            current_price = data['close'].iloc[-1]
-            quantity = self.calculate_quantity(latest_signal, current_price, risk_pct)
+            # Get current balances
+            base_balance = self.get_balance(self.base_currency)
+            quote_balance = self.get_balance(self.quote_currency)
             
-            if quantity * current_price < 0.0001:
-                self.logger.warning("Insufficient balance")
-                return
-                
-            self.execute_trade(latest_signal, current_price, quantity)
+            # Determine which orders to place based on balances and signals
+            if buy_price is not None and quote_balance > 0:
+                # We have quote currency and a buy signal
+                self.execute_trade(1, buy_price)
+            if sell_price is not None and base_balance > 0:
+                # We have base currency and a sell signal
+                self.execute_trade(-1, sell_price)
+            # else:
+            #     self.logger.debug("No valid trading opportunity")
             
         except Exception as e:
-            os.system('spd-say "ERROR"')
             self.logger.error(f"Trading error: {e}")
             raise

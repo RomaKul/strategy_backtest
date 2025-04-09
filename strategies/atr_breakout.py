@@ -60,7 +60,7 @@ class ATRTrailingBreakout(StrategyBase):
                     signals.loc[signals.index[i], 'position'] = 0
                     in_long = False
                 else:
-                    signals.loc[signals.index[i], 'position'] = 1
+                    signals.loc[signals.index[i], 'position'] = -1
                     signals.loc[signals.index[i], 'stop_loss'] = max(
                         signals['stop_loss'].iloc[i-1],
                         close.iloc[i] - atr.iloc[i] * self.atr_multiplier
@@ -75,7 +75,7 @@ class ATRTrailingBreakout(StrategyBase):
                     signals.loc[signals.index[i], 'position'] = 0
                     in_short = False
                 else:
-                    signals.loc[signals.index[i], 'position'] = -1
+                    signals.loc[signals.index[i], 'position'] = 1
                     signals.loc[signals.index[i], 'stop_loss'] = min(
                         signals['stop_loss'].iloc[i-1],
                         close.iloc[i] + atr.iloc[i] * self.atr_multiplier
@@ -85,12 +85,12 @@ class ATRTrailingBreakout(StrategyBase):
             # Вхід у позиції
             if not in_long and not in_short:
                 if breakout_up.iloc[i]:
-                    signals.loc[signals.index[i], 'position'] = 1
+                    signals.loc[signals.index[i], 'position'] = -1
                     signals.loc[signals.index[i], 'stop_loss'] = close.iloc[i] - atr.iloc[i] * self.atr_multiplier
                     signals.loc[signals.index[i], 'take_profit'] = close.iloc[i] + atr.iloc[i] * self.atr_multiplier * 2
                     in_long = True
                 elif breakout_down.iloc[i]:
-                    signals.loc[signals.index[i], 'position'] = -1
+                    signals.loc[signals.index[i], 'position'] = 1
                     signals.loc[signals.index[i], 'stop_loss'] = close.iloc[i] + atr.iloc[i] * self.atr_multiplier
                     signals.loc[signals.index[i], 'take_profit'] = close.iloc[i] - atr.iloc[i] * self.atr_multiplier * 2
                     in_short = True
@@ -126,17 +126,3 @@ class ATRTrailingBreakout(StrategyBase):
         
         self.results = pf.stats()
         return pf
-    
-    def get_metrics(self) -> Dict[str, float]:
-        """Повертає метрики продуктивності стратегії."""
-        if self.results is None:
-            raise ValueError("Спочатку виконайте бектест (run_backtest)")
-        
-        return {
-            'total_return': self.results['Total Return [%]'],
-            'sharpe_ratio': self.results['Sharpe Ratio'],
-            'max_drawdown': self.results['Max Drawdown [%]'],
-            'win_rate': self.results['Win Rate [%]'],
-            'expectancy': self.results['Expectancy'],
-            'exposure_time': self.results['Avg Winning Trade Duration'] + self.results['Avg Losing Trade Duration']
-        }

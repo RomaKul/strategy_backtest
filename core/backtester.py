@@ -5,6 +5,7 @@ from strategies.base import StrategyBase
 import os
 import matplotlib.pyplot as plt
 import seaborn as sns
+from tqdm import tqdm
 
 class Backtester:
     """
@@ -40,7 +41,7 @@ class Backtester:
         """
         all_results = {}
         
-        for symbol, price_data in self.data.items():
+        for symbol, price_data in tqdm(self.data.items(), desc="Processing symbols"):
             try:
                 strategy = strategy_class(price_data, strategy_params)
                 strategy.generate_signals()

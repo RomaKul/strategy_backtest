@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import vectorbt as vbt
 from .base import StrategyBase
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 
 class VWAPReversion(StrategyBase):
     """
@@ -24,6 +24,23 @@ class VWAPReversion(StrategyBase):
         ).sum() / self.price_data['volume'].rolling(window=self.vwap_window).sum()
         return vwap
     
+    def get_current_signal_prices(self) -> Tuple[float, float]:
+        """
+        Returns the current buy and sell trigger prices based on VWAP deviation.
+        
+        Returns:
+            Tuple[float, float]: (buy_price, sell_price) 
+            where buy_price is the price that would trigger a buy signal,
+            and sell_price is the price that would trigger a sell signal.
+        """
+        current_vwap = self.calculate_vwap().iloc[-1]
+        
+        # Calculate price levels that would trigger signals
+        buy_trigger_price = current_vwap * (1 - self.deviation_threshold)
+        sell_trigger_price = current_vwap * (1 + self.deviation_threshold)
+        
+        return buy_trigger_price, sell_trigger_price
+
     def generate_signals(self) -> pd.DataFrame:
         """Генерує сигнали на основі відхилення від VWAP."""
         close = self.price_data['close']
@@ -70,17 +87,3 @@ class VWAPReversion(StrategyBase):
         
         self.results = pf.stats()
         return pf
-    
-    def get_metrics(self) -> Dict[str, float]:
-        """Повертає метрики продуктивності стратегії."""
-        if self.results is None:
-            raise ValueError("Спочатку виконайте бектест (run_backtest)")
-        
-        return {
-            'total_return': self.results['Total Return [%]'],
-            'sharpe_ratio': self.results['Sharpe Ratio'],
-            'max_drawdown': self.results['Max Drawdown [%]'],
-            'win_rate': self.results['Win Rate [%]'],
-            'expectancy': self.results['Expectancy'],
-            'exposure_time': self.results['Avg Winning Trade Duration'] + self.results['Avg Losing Trade Duration']
-        }
