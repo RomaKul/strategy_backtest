@@ -86,6 +86,38 @@ class DataLoader:
         
         return df
     
+    def calculate_min_tick_size(df, price_column='close'):
+        """Calculate the minimum observed price step (tick size)"""
+        # Sort prices and get differences between consecutive values
+        sorted_prices = np.sort(df[price_column].unique())
+        diffs = np.diff(sorted_prices)
+        
+        # Filter out zero differences and get the smallest non-zero difference
+        min_tick = np.min(diffs[diffs > 0])
+        return min_tick    
+
+    def fetch_historical_bid_ask(self, symbol: str, timeframe: str, 
+                            start_date: str, end_date: str) -> pd.DataFrame:
+        """
+        Fetch historical bid/ask prices from exchange (if supported)
+        """
+        df = self.fetch_ohlcv(symbol, timeframe, start_date, end_date)
+        
+        # Calculate minimum tick size
+        sorted_prices = np.sort(df['close'].unique())
+        min_tick = np.min(np.diff(sorted_prices))
+        
+        # Handle edge case (if all prices are equal)
+        if np.isnan(min_tick) or min_tick <= 0:
+            min_tick = 0.000000001  # Default BTC tick size
+        
+        # Create bid/ask columns
+        df = df.copy()
+        df['bid'] = df['close'] - min_tick
+        df['ask'] = df['close'] + min_tick
+
+        return df
+    
     def save_data(self, data: Dict[str, pd.DataFrame], filename: str) -> None:
         """
         Зберігає дані у форматі Parquet.

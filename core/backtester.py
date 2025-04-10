@@ -70,7 +70,7 @@ class Backtester:
         import plotly.io as pio
         
         # Створюємо директорію для збереження, якщо її немає
-        os.makedirs(os.path.join(self.results_dir, 'screenshots'), exist_ok=True)
+        os.makedirs(os.path.join(self.results_dir, f'screenshots_{strategy_name}'), exist_ok=True)
         
         # Equity curve
         fig = portfolio.plot(subplots=['orders', 'trade_pnl', 'cum_returns'])
@@ -78,8 +78,8 @@ class Backtester:
         # Додатково зберігаємо як статичне зображення (PNG)
         png_filename = os.path.join(
             self.results_dir,
-            'screenshots',
-            f'{strategy_name}_{symbol}_equity.png'
+            f'screenshots_{strategy_name}',
+            f'{symbol}_equity.png'
         )
         fig.write_image(png_filename, scale=2)
     

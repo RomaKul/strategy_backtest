@@ -4,6 +4,8 @@ import pandas as pd
 from binance.client import Client
 from binance.enums import *
 from strategies.base import StrategyBase
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import os
 import time
 import math
@@ -18,7 +20,7 @@ class TradingAgent:
         symbol: str,
         timeframe: str,
         test_mode: bool = True,
-        order_timeout: int = 999999999999,
+        order_timeout: int = 300,
         risk_pct: float = 0.01,
         safety_buffer_pct: float = 0.05,  # 5% buffer from signal price
         logger: Optional[logging.Logger] = None
@@ -45,6 +47,11 @@ class TradingAgent:
         self.logger.info(f"Initialized TradingAgent for {symbol}")
 
     def fetch_market_data(self, limit: int = 51) -> pd.DataFrame:
+        # Initialize Binance client
+        api_key = '0FhZdWeLefwxmQYVzi8pT1hQaR6lvC0NRn35oWiG5bJV1LutsMJgbHnK5ZJrZbQK'
+        api_secret = 'SheFNtiCQKhphhWCACRKQWdaTbXKyv2ZxzhgmLyvfXQQNqo8iOBmLxoBVw2nlIGu'
+        self.client = Client(api_key, api_secret, {"timeout": 30})
+
         """Fetch OHLCV market data from Binance."""
         try:
             candles = self.client.get_klines(
@@ -236,7 +243,7 @@ class TradingAgent:
                     original_price = float(self.pending_orders[order_id]['price'])
                     price_diff_pct = abs(current_price - original_price) / original_price * 100
                     
-                    if price_diff_pct > 10.0:  # 1% price movement against us
+                    if price_diff_pct > 10.0:  # 10% price movement against us
                         self.logger.info(f"Price moved {price_diff_pct:.2f}% against pending order")
                         self.client.cancel_order(
                             symbol=self.symbol,

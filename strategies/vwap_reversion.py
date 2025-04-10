@@ -8,6 +8,7 @@ class VWAPReversion(StrategyBase):
     """
     Стратегія повернення до VWAP (Volume Weighted Average Price).
     Відкриває позиції при значному відхиленні ціни від VWAP з очікуванням повернення.
+    Використовує правильні ціни для покупки (bid) та продажу (ask) замість ціни закриття.
     """
     
     def __init__(self, price_data: pd.DataFrame, params: Dict[str, Any] = None):
@@ -42,22 +43,33 @@ class VWAPReversion(StrategyBase):
         return buy_trigger_price, sell_trigger_price
 
     def generate_signals(self) -> pd.DataFrame:
-        """Генерує сигнали на основі відхилення від VWAP."""
-        close = self.price_data['close']
+        """Генерує сигнали на основі відхилення від VWAP, використовуючи bid/ask ціни."""
+        bid = self.price_data['bid']
+        ask = self.price_data['ask']
         vwap = self.calculate_vwap()
         
-        # Відхилення від VWAP у відсотках
-        deviation = (close - vwap) / vwap
+        # Відхилення від VWAP у відсотках для bid (покупка) та ask (продаж)
+        buy_deviation = (bid - vwap) / vwap
+        sell_deviation = (ask - vwap) / vwap
         
-        signals = pd.DataFrame(index=close.index)
+        signals = pd.DataFrame(index=vwap.index)
         signals['position'] = 0
         
-        # Умови входу
-        signals.loc[deviation > self.deviation_threshold, 'position'] = -1  # Продаж при перекупленості
-        signals.loc[deviation < -self.deviation_threshold, 'position'] = 1  # Купівля при перепроданності
+        # Умови входу:
+        # Купівля, коли bid ціна значно нижче VWAP (перепроданість)
+        signals.loc[buy_deviation < -self.deviation_threshold, 'position'] = 1
         
-        # Умови виходу
-        signals.loc[(deviation.abs() < self.exit_threshold) & (signals['position'] != 0), 'position'] = 0
+        # Продаж, коли ask ціна значно вище VWAP (перекупленість)
+        signals.loc[sell_deviation > self.deviation_threshold, 'position'] = -1
+        
+        # Умови виходу:
+        # Для довгих позицій: коли ask ціна наближається до VWAP
+        long_exit_condition = ((ask - vwap) / vwap).abs() < self.exit_threshold
+        signals.loc[long_exit_condition & (signals['position'] == 1), 'position'] = 0
+        
+        # Для коротких позицій: коли bid ціна наближається до VWAP
+        short_exit_condition = ((bid - vwap) / vwap).abs() < self.exit_threshold
+        signals.loc[short_exit_condition & (signals['position'] == -1), 'position'] = 0
         
         # Усунення пропусків
         signals.fillna(0, inplace=True)
@@ -66,7 +78,7 @@ class VWAPReversion(StrategyBase):
         return signals
     
     def run_backtest(self, **kwargs) -> pd.DataFrame:
-        """Виконує бектест стратегії."""
+        """More precise implementation with separate execution prices"""
         if self.signals is None:
             self.generate_signals()
         
@@ -74,15 +86,24 @@ class VWAPReversion(StrategyBase):
         fees = kwargs.get('fees', 0.001)
         slippage = kwargs.get('slippage', 0.0005)
         
+        # Create separate price series for each operation type
+        entry_prices = self.price_data['ask'].copy()
+        exit_prices = self.price_data['bid'].copy()
+        
         pf = vbt.Portfolio.from_signals(
-            close,
+            close=close,
             entries=self.signals['position'] == 1,
             exits=self.signals['position'] == -1,
             short_entries=self.signals['position'] == -1,
             short_exits=self.signals['position'] == 1,
             fees=fees,
             slippage=slippage,
-            freq='1m'
+            # Map each operation to its price series
+            price=(
+                entry_prices.where(self.signals['position'] == 1)  # Long entries
+                .fillna(exit_prices.where(self.signals['position'] == -1))  # Long exits
+                .fillna(close)  # Fallback
+            )
         )
         
         self.results = pf.stats()

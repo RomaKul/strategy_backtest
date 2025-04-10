@@ -7,7 +7,7 @@ import sys
 # Initialize Binance client
 api_key = '0FhZdWeLefwxmQYVzi8pT1hQaR6lvC0NRn35oWiG5bJV1LutsMJgbHnK5ZJrZbQK'
 api_secret = 'SheFNtiCQKhphhWCACRKQWdaTbXKyv2ZxzhgmLyvfXQQNqo8iOBmLxoBVw2nlIGu'
-client = Client(api_key, api_secret)
+client = Client(api_key, api_secret, {"timeout": 30})
 
 # Initialize strategy
 strategy = VWAPReversion(1)
@@ -16,9 +16,9 @@ strategy = VWAPReversion(1)
 agent = TradingAgent(
     client=client,
     strategy=strategy,
-    symbol='VETBTC',
+    symbol='VIDTBTC',
     timeframe='1m',
-    risk_pct=0.95,
+    risk_pct=0.99,
     test_mode=False  # Set to True for paper trading
 )
 
