@@ -43,7 +43,7 @@ class DataLoader:
         return [p[0] for p in volumes[:limit]]
     
     def fetch_ohlcv(self, symbol: str, timeframe: str = '1m', 
-                   start_date: str = '2025-02-01', end_date: str = '2025-03-01') -> pd.DataFrame:
+                   start_date: str = '2025-03-01', end_date: str = '2025-05-01') -> pd.DataFrame:
         """
         Завантажує OHLCV дані для конкретної пари.
         
@@ -86,35 +86,34 @@ class DataLoader:
         
         return df
     
-    def calculate_min_tick_size(df, price_column='close'):
-        """Calculate the minimum observed price step (tick size)"""
-        # Sort prices and get differences between consecutive values
-        sorted_prices = np.sort(df[price_column].unique())
-        diffs = np.diff(sorted_prices)
+    def get_min_step(self, x):   
+        x_str = str(x).lower()  # Ensure lowercase for 'e' notation
         
-        # Filter out zero differences and get the smallest non-zero difference
-        min_tick = np.min(diffs[diffs > 0])
-        return min_tick    
+        # Case 1: Scientific notation (e.g., "3e-07", "2.4e-07")
+        if 'e-' in x_str:
+            exponent = int(x_str.split('e-')[1]) + 1
+            return 10 ** (-exponent)
+        
+        # Case 2: Regular decimal (e.g., "0.000123")
+        elif '.' in x_str:
+            decimal_digits = len(x_str.split('.')[1])
+            return 10 ** (-decimal_digits)
+        
+        # Case 3: Non-decimal (e.g., "42", 100)
+        else:
+            return 1
 
-    def fetch_historical_bid_ask(self, symbol: str, timeframe: str, 
-                            start_date: str, end_date: str) -> pd.DataFrame:
+    def fetch_historical_bid_ask(self, symbol: str, timeframe: str = '1m', 
+                   start_date: str = '2025-03-01', end_date: str = '2025-05-01', df=None) -> pd.DataFrame:
         """
         Fetch historical bid/ask prices from exchange (if supported)
         """
-        df = self.fetch_ohlcv(symbol, timeframe, start_date, end_date)
+        if not df:
+            df = self.fetch_ohlcv(symbol, timeframe, start_date, end_date)
         
         # Calculate minimum tick size
-        sorted_prices = np.sort(df['close'].unique())
-        min_tick = np.min(np.diff(sorted_prices))
-        
-        # Handle edge case (if all prices are equal)
-        if np.isnan(min_tick) or min_tick <= 0:
-            min_tick = 0.000000001  # Default BTC tick size
-        
-        # Create bid/ask columns
-        df = df.copy()
-        df['bid'] = df['close'] - min_tick
-        df['ask'] = df['close'] + min_tick
+        df['bid'] = df['close'] - df['close'].apply(self.get_min_step)
+        df['ask'] = df['close'] + df['close'].apply(self.get_min_step)
 
         return df
     
@@ -133,17 +132,46 @@ class DataLoader:
             engine='pyarrow', 
             compression='snappy'
         )
-    
-    def load_data(self, filename: str) -> Dict[str, pd.DataFrame]:
+
+
+    def load_data(
+        self, 
+        filename: str,
+        agg_freq: str = None
+    ) -> Dict[str, pd.DataFrame]:
         """
-        Завантажує дані з Parquet файлу.
+        Завантажує дані з Parquet файлу з можливістю OHLC агрегації.
         
         Args:
             filename: Ім'я файлу для завантаження
-            
+            agg_freq: Частота агрегації (наприклад, '1H', '1D', '1W'). 
+                    Якщо None (або не вказано), агрегація не виконується.
+        
         Returns:
             Словник з DataFrame для кожної пари
         """
         df = pd.read_parquet(os.path.join(self.data_dir, filename))
         df.dropna(inplace=True)
-        return {symbol: df[symbol] for symbol in df.columns.levels[0]}
+        
+        result = {}
+        
+        for symbol in df.columns.levels[0]:
+            symbol_df = df[symbol].copy()
+            
+            if agg_freq is not None:
+                # OHLC aggregation
+                agg_dict = {
+                    'open': 'first',
+                    'high': 'max',
+                    'low': 'min',
+                    'close': 'last',
+                    'volume': 'sum'
+                }
+                symbol_df = symbol_df.resample(agg_freq).agg(agg_dict)
+            
+            symbol_df['bid'] = symbol_df['close'] - symbol_df['close'].apply(self.get_min_step)
+            symbol_df['ask'] = symbol_df['close'] + symbol_df['close'].apply(self.get_min_step)
+
+            result[symbol] = symbol_df
+        return result
+    

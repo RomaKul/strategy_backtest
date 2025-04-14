@@ -48,9 +48,6 @@ class TradingAgent:
 
     def fetch_market_data(self, limit: int = 51) -> pd.DataFrame:
         # Initialize Binance client
-        api_key = '0FhZdWeLefwxmQYVzi8pT1hQaR6lvC0NRn35oWiG5bJV1LutsMJgbHnK5ZJrZbQK'
-        api_secret = 'SheFNtiCQKhphhWCACRKQWdaTbXKyv2ZxzhgmLyvfXQQNqo8iOBmLxoBVw2nlIGu'
-        self.client = Client(api_key, api_secret, {"timeout": 30})
 
         """Fetch OHLCV market data from Binance."""
         try:

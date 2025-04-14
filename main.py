@@ -8,7 +8,7 @@ from core.backtester import Backtester
 from strategies.atr_breakout import ATRTrailingBreakout
 from strategies.multi_momentum import MultiTimeframeMomentum
 from strategies.vwap_reversion import VWAPReversion
-from strategies.bb_rsi import BB_RSI_VWAL_Strategy
+from strategies.bb_rsi import BB_RSI
 import logging
 from datetime import datetime
 import pandas as pd
@@ -53,7 +53,7 @@ def main():
         # (ATRTrailingBreakout, {'atr_window': 14, 'atr_multiplier': 2.0, 'lookback_period': 20}),
         # (MultiTimeframeMomentum, {'rsi_window': 14, 'bb_window': 20}),
         # (VWAPReversion, {'vwap_window': 50, 'deviation_threshold': 0.02}),
-        (BB_RSI_VWAL_Strategy, {})
+        (BB_RSI, {})
     ]
     
     # Запуск бектесту для кожної стратегії

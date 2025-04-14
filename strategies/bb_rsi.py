@@ -4,7 +4,7 @@ import vectorbt as vbt
 from .base import StrategyBase
 from typing import Dict, Any, Tuple
 
-class BB_RSI_VWAL_Strategy(StrategyBase):
+class BB_RSI(StrategyBase):
     """
     Long-only strategy using Bollinger Bands, adaptive RSI, and aggregated VWAL.
     Entry signals require:
@@ -18,26 +18,6 @@ class BB_RSI_VWAL_Strategy(StrategyBase):
     
     def __init__(self, price_data: pd.DataFrame, params: Dict[str, Any] = None):
         super().__init__(price_data, params)
-        # self.price_data = self.price_data.resample('1h').agg({
-        #     'open': 'first',
-        #     'high': 'max',
-        #     'low': 'min',
-        #     'close': 'last',
-        #     'volume': 'sum'
-        # })
-
-        # # Calculate minimum tick size
-        # sorted_prices = np.sort(self.price_data['close'].unique())
-        # min_tick = np.min(np.diff(sorted_prices))
-        
-        # # Handle edge case (if all prices are equal)
-        # if np.isnan(min_tick) or min_tick <= 0:
-        #     min_tick = 0.000000001  # Default BTC tick size
-        
-        # # Create bid/ask columns
-        # self.price_data = self.price_data.copy()
-        # self.price_data['bid'] = self.price_data['close'] - min_tick
-        # self.price_data['ask'] = self.price_data['close'] + min_tick
 
         # Bollinger Bands parameters
         self.bb_window = self.params.get('bb_window', 20)
