@@ -5,6 +5,14 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "run_agent_bb",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "run_agent_bb.py",
+            "console": "integratedTerminal"
+        },
+        
+        {
             "name": "run_agent",
             "type": "debugpy",
             "request": "launch",

@@ -1,6 +1,5 @@
 from binance.client import Client
-from strategies.vwap_reversion import VWAPReversion  # or any other strategy
-from agent.binance_test import TradingAgent
+from agent.binance_BB import TradingAgent
 import time
 import sys
 
@@ -8,17 +7,15 @@ import sys
 with open('config.txt', 'r') as f:
     api_key = f.readline().strip()
     api_secret = f.readline().strip()
-client = Client(api_key, api_secret, {"timeout": 30})
 
-# Initialize strategy
-strategy = VWAPReversion(1)
+client = Client(api_key, api_secret, {"timeout": 30})
 
 # Create trading agent
 agent = TradingAgent(
-    client=client,
-    strategy=strategy,
-    symbol='VIDTBTC',
-    timeframe='1m',
+    client=None,
+    strategy=None,
+    symbol='SOLBTC',
+    timeframe='1h',
     risk_pct=0.99,
     test_mode=False  # Set to True for paper trading
 )
